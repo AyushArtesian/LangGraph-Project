@@ -1,3 +1,5 @@
+# agents/reviewer.py
+
 import json
 import re
 
@@ -5,84 +7,77 @@ from llm import llm
 
 
 def extract_json(text: str) -> dict | None:
-    """Robustly extract JSON from LLM response, handling markdown fences."""
-    text = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("`").strip()
+    """Extract JSON from LLM response safely."""
+    text = re.sub(r"```(?:json)?\s*", "", text)
+    text = text.replace("```", "").strip()
 
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except Exception:
         pass
 
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
-        except json.JSONDecodeError:
+        except Exception:
             pass
 
     return None
 
 
 def reviewer_node(state):
-    car_json = state["car_json"]
+    vehicle = state["vehicle"]
     marketing_copy = state["marketing_copy"]
 
+    make = vehicle.get("make", "")
+    model = vehicle.get("model", "")
+    trim = vehicle.get("trim", "")
+
     prompt = f"""
-You are a strict automotive content reviewer.
+You are an automotive compliance reviewer.
 
-Your job is to review the marketing copy against the vehicle JSON and identify specific problems.
+Your job is to validate whether the marketing copy follows VPIC data.
 
-VEHICLE JSON:
-{car_json}
+VEHICLE DATA:
+
+Make: {make}
+Model: {model}
+Trim: {trim}
 
 MARKETING COPY:
+
 {marketing_copy}
 
----
+VALIDATION RULES:
 
-Review the copy across these four areas:
+1. Model name "{model}" must appear.
+2. Model spacing must be correct.
+3. No duplicated trim names.
+4. No duplicated model names.
+5. No year references.
+6. No dates.
+7. No pricing.
+8. No plant/factory/manufacturing location.
+9. No hallucinated features.
+10. No hallucinated specifications.
+11. No invented technology.
+12. No invented interior features.
+13. No invented performance claims.
 
-1. FACTUAL ACCURACY
-   - Compare every spec in the copy against the vehicle JSON.
-   - List any incorrect, exaggerated, or invented specifications.
-
-2. MISSING INFORMATION
-   - Check which of these categories are absent or insufficiently covered:
-     pricing, engine, transmission, performance, dimensions, suspension, wheels_tyres,
-     exterior_features, interior_features, infotainment, safety, off_road, warranty, ratings, colors
-   - List only the ones that are genuinely missing or too vague.
-
-3. GRAMMAR & READABILITY
-   - Flag any grammatical errors, awkward phrasing, or repetitive sentences.
-   - Note if sections are missing headings or hard to scan.
-
-4. MARKETING QUALITY
-   - Does it have a strong headline?
-   - Is the opening paragraph aspirational and premium?
-   - Is there a clear value proposition?
-   - Does it end with a strong buying recommendation / CTA?
-   - Flag anything weak or generic.
-
----
-
-Return ONLY valid JSON with no markdown fences, no preamble:
+Return ONLY valid JSON.
 
 {{
-    "factual_errors": [
-        "list of specific spec mismatches, e.g. 'Copy says 480 Nm torque but JSON says 500 Nm'"
-    ],
-    "missing_features": [
-        "list of category names that are missing or too vague, e.g. 'suspension', 'colors'"
-    ],
-    "grammar_issues": [
-        "list of specific grammar or readability problems found"
-    ],
-    "marketing_issues": [
-        "list of specific marketing quality problems, e.g. 'No closing CTA', 'Headline is weak'"
-    ],
-    "improvements": [
-        "list of concrete, actionable improvements combining all of the above"
-    ]
+    "model_name_present": "yes|no",
+    "model_name_correct_spacing": "yes|no",
+    "duplicate_trim_detected": "yes|no",
+    "duplicate_model_detected": "yes|no",
+    "contains_year_date": "yes|no",
+    "contains_price": "yes|no",
+    "contains_plant_location": "yes|no",
+    "contains_hallucinated_data": "yes|no",
+    "hallucination_examples": [],
+    "summary": ""
 }}
 """
 
@@ -91,30 +86,28 @@ Return ONLY valid JSON with no markdown fences, no preamble:
     result = extract_json(response.content)
 
     if result is None:
-        print(f"[reviewer] WARNING: Could not parse JSON. Raw:\n{response.content[:300]}")
         result = {
-            "factual_errors": [],
-            "missing_features": [],
-            "grammar_issues": [],
-            "marketing_issues": [],
-            "improvements": ["Reviewer could not parse response — check copy manually."]
+            "model_name_present": "no",
+            "model_name_correct_spacing": "no",
+            "duplicate_trim_detected": "yes",
+            "duplicate_model_detected": "yes",
+            "contains_year_date": "yes",
+            "contains_price": "yes",
+            "contains_plant_location": "yes",
+            "contains_hallucinated_data": "yes",
+            "hallucination_examples": ["review parse failure"],
+            "summary": "review parse failure",
         }
 
-    # Merge reviewer findings into review_feedback.
-    # The judge will later overwrite this with its own structured feedback,
-    # but the refiner can also use this if it runs before the judge.
-    state["review_feedback"] = {
-        "score": state.get("quality_score", 0),  # carry forward last known score
-        "checklist": {},                          # judge will populate this
-        "factual_errors": result.get("factual_errors", []),
-        "missing_features": result.get("missing_features", []),
-        "grammar_issues": result.get("grammar_issues", []),
-        "marketing_issues": result.get("marketing_issues", []),
-        "improvements": result.get("improvements", [])
-    }
+    state["review_feedback"] = result
 
-    print(f"[reviewer] Found {len(result.get('missing_features', []))} missing sections, "
-          f"{len(result.get('factual_errors', []))} factual errors, "
-          f"{len(result.get('improvements', []))} improvements.")
+    print(
+        f"[reviewer] "
+        f"Model={result.get('model_name_present')} | "
+        f"Spacing={result.get('model_name_correct_spacing')} | "
+        f"DupTrim={result.get('duplicate_trim_detected')} | "
+        f"DupModel={result.get('duplicate_model_detected')} | "
+        f"Hallucinations={result.get('contains_hallucinated_data')}"
+    )
 
     return state

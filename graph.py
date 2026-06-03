@@ -9,26 +9,23 @@ from agents.reviewer import reviewer_node
 from agents.refiner import refiner_node
 from agents.judge import judge_node
 
-
 builder = StateGraph(MarketingState)
 
-# Nodes
 builder.add_node("generator", generator_node)
 builder.add_node("reviewer", reviewer_node)
 builder.add_node("refiner", refiner_node)
 builder.add_node("judge", judge_node)
 
-# Flow
+# Initial flow
 builder.add_edge(START, "generator")
 builder.add_edge("generator", "reviewer")
-builder.add_edge("reviewer", "refiner")
-builder.add_edge("refiner", "judge")
+builder.add_edge("reviewer", "judge")
+
+# Retry flow
+builder.add_edge("refiner", "reviewer")
 
 
 def route_after_judge(state):
-    """
-    Decide whether to approve or retry.
-    """
 
     if state["approved"]:
         print(
@@ -46,7 +43,7 @@ def route_after_judge(state):
         f"\nRetrying... iteration {state['iteration']}"
     )
 
-    return "reviewer"
+    return "refiner"
 
 
 builder.add_conditional_edges(

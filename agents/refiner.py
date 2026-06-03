@@ -1,111 +1,184 @@
 from llm import llm
 
 
+def _is_yes(value) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() == "yes"
+
+    return False
+
+
+def _hallucination_text(value) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, list):
+        return ", ".join(
+            str(v).strip()
+            for v in value
+            if str(v).strip()
+        )
+
+    return str(value).strip()
+
+
 def refiner_node(state):
+    vehicle = state["vehicle"]
+    feedback = state.get("review_feedback", {})
+    current_copy = state["marketing_copy"]
 
-    feedback = state["review_feedback"]
-    score = feedback.get("score", 0)
-    missing = feedback.get("missing_features", [])
-    errors = feedback.get("factual_errors", [])
-    improvements = feedback.get("improvements", [])
-    quality = feedback.get("quality_breakdown", {})
+    make = vehicle.get("make", "")
+    model = vehicle.get("model", "")
+    trim = vehicle.get("trim", "")
 
-    # ── Build targeted fix instructions based on what actually failed ──
+    normalized_model = model.lower().replace(" ", "")
+    normalized_trim = trim.lower().replace(" ", "")
 
-    fix_blocks = []
+    if trim and normalized_trim not in normalized_model:
+        full_name = f"{make} {model} {trim}".strip()
+    else:
+        full_name = f"{make} {model}".strip()
 
-    if missing:
-        fix_blocks.append(
-            "MISSING SECTIONS — these checklist items were not found in the copy. "
-            "You MUST include them explicitly:\n"
-            + "\n".join(f"  • {item.replace('_', ' ')}" for item in missing)
+    fixes = []
+
+    if not _is_yes(
+        feedback.get("model_name_present")
+    ):
+        fixes.append(
+            f"Add exact model name '{model}'"
         )
 
-    if errors:
-        fix_blocks.append(
-            "FACTUAL ERRORS — fix these spec mismatches against the vehicle JSON:\n"
-            + "\n".join(f"  • {e}" for e in errors)
+    if not _is_yes(
+        feedback.get("model_name_correct_spacing")
+    ):
+        fixes.append(
+            f"Use exact spacing '{model}'"
         )
 
-    # Identify weak quality dimensions (scored below 14/20)
-    weak_dims = []
-    dim_labels = {
-        "headline":   "Headline — make it more specific, premium, and compelling",
-        "opening":    "Opening paragraph — must be more aspirational and desire-creating",
-        "language":   "Language quality — eliminate generic filler; use premium automotive vocabulary",
-        "value_prop": "Value proposition — buyer must immediately understand why to choose this car",
-        "cta":        "Closing CTA — must be confident, specific, and action-driving",
-    }
-    for dim, label in dim_labels.items():
-        if quality.get(dim, 20) < 14:
-            weak_dims.append(label)
-
-    if weak_dims:
-        fix_blocks.append(
-            "WRITING QUALITY — improve these specific dimensions:\n"
-            + "\n".join(f"  • {d}" for d in weak_dims)
+    if _is_yes(
+        feedback.get("duplicate_trim_detected")
+    ):
+        fixes.append(
+            "Remove duplicated trim names"
         )
 
-    if improvements:
-        fix_blocks.append(
-            "ADDITIONAL FEEDBACK FROM REVIEWER:\n"
-            + "\n".join(f"  • {i}" for i in improvements)
+    if _is_yes(
+        feedback.get("duplicate_model_detected")
+    ):
+        fixes.append(
+            "Remove duplicated model names"
         )
 
-    targeted_section = (
-        "\n\n".join(fix_blocks)
-        if fix_blocks
-        else "Improve overall writing quality — make every sentence more premium and persuasive."
+    if _is_yes(
+        feedback.get("contains_year_date")
+    ):
+        fixes.append(
+            "Remove all year/date references"
+        )
+
+    if _is_yes(
+        feedback.get("contains_price")
+    ):
+        fixes.append(
+            "Remove all pricing references"
+        )
+
+    if _is_yes(
+        feedback.get("contains_plant_location")
+    ):
+        fixes.append(
+            "Remove all plant/factory/manufacturing locations"
+        )
+
+    if _is_yes(
+        feedback.get("contains_hallucinated_data")
+    ):
+        hallucinations = _hallucination_text(
+            feedback.get("hallucination_examples")
+        )
+
+        fixes.append(
+            f"Remove hallucinated content: {hallucinations}"
+        )
+
+    fixes_text = "\n".join(
+        f"- {fix}"
+        for fix in fixes
     )
 
     prompt = f"""
-You are an elite automotive copywriter producing dealership-grade marketing copy.
+You are correcting an automotive marketing description.
 
-VEHICLE DATA (source of truth — never invent specs):
-{state["car_json"]}
+VEHICLE DATA (ONLY SOURCE OF TRUTH):
 
-CURRENT COPY (score: {score}/100 — target: 85+):
-{state["marketing_copy"]}
+Make: {make}
+Model: {model}
+Trim: {trim}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SPECIFIC ISSUES TO FIX IN THIS REWRITE:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{targeted_section}
+Body Class: {vehicle.get('body_class', '')}
+Doors: {vehicle.get('doors', '')}
+Drive Type: {vehicle.get('drive_type', '')}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MANDATORY STRUCTURE — every section must be present:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Transmission: {vehicle.get('transmission', '')}
+Transmission Speeds: {vehicle.get('transmission_speeds', '')}
 
-1.  Headline          — model name + 3 most compelling highlights
-2.  Opening           — 3-4 aspirational sentences that create desire
-3.  Pricing           — ex-showroom (₹52,00,000) + on-road (₹59,00,000)
-4.  Engine            — displacement (2755 cc), power (201 hp @ 3000 rpm), torque (500 Nm @ 2800 rpm), fuel, BS6 Phase 2
-5.  Transmission      — 6-Speed Automatic, 4WD
-6.  Performance       — top speed (190 km/h), 0-100 (10.8 sec), mileage (14.4 kmpl), tank (80 L)
-7.  Dimensions        — length (4795), width (1855), height (1835), wheelbase (2745), ground clearance (225), kerb weight (2200 kg), boot (296 L)
-8.  Suspension/Brakes — Double Wishbone front, Multi-Link rear, Ventilated Disc front, Disc rear
-9.  Wheels/Tyres      — 18-inch, All-Terrain, alloy wheels, full-size spare
-10. Exterior Features — bullet list of all 11 items from JSON
-11. Interior/Comfort  — bullet list of all interior_features + comfort_and_convenience items
-12. Infotainment      — 10.1-inch, Android Auto, Apple CarPlay, wireless charging, 4 USB, JBL 11-speaker, connected car, voice assistant
-13. Safety/ADAS       — 7 airbags + all 10 ADAS features from JSON
-14. Off-Road          — 4x4, Mud/Sand/Rock/Snow modes, locking diff, 700 mm wading, hill descent
-15. Warranty          — 3 years / 100,000 km + 3 years roadside assistance
-16. Ratings           — 5-star Global NCAP, 4.7/5 owner rating
-17. Colors            — all 5 colors
-18. Buying CTA        — strong, confident, specific recommendation
+Engine Cylinders: {vehicle.get('engine_cylinders', '')}
+Displacement: {vehicle.get('displacement_l', '')}
+Horsepower: {vehicle.get('engine_power_hp', '')}
+Power kW: {vehicle.get('engine_power_kw', '')}
 
-WRITING RULES:
-- Bold every key number and spec value.
-- Bullet points for all feature lists.
-- No repetition across sections.
-- No generic phrases like "best-in-class" without spec backing.
-- Every sentence must earn its place.
+Fuel Primary: {vehicle.get('fuel_primary', '')}
+Fuel Secondary: {vehicle.get('fuel_secondary', '')}
+Electrification: {vehicle.get('electrification', '')}
+Turbo: {vehicle.get('turbo', '')}
 
-Output ONLY the final marketing copy. No preamble, no commentary.
+CURRENT COPY:
+
+{current_copy}
+
+REQUIRED FIXES:
+
+{fixes_text}
+
+MANDATORY RULES:
+
+1. Use ONLY VPIC data.
+2. No hallucinations.
+3. No invented features.
+4. No invented specifications.
+5. No dates.
+6. No years.
+7. No pricing.
+8. No plant location.
+9. No factory location.
+10. No manufacturing location.
+11. No duplicate trim names.
+12. No duplicate model names.
+13. Vehicle name must be exactly:
+
+{full_name}
+
+14. Never write:
+Wrangler 4 XE 4XE
+
+15. Never write:
+{model} {trim}
+
+if trim already exists in model.
+
+16. Professional dealership style.
+17. Natural paragraphs.
+18. No bullet points.
+19. Return ONLY corrected description.
+
+Rewrite now.
 """
 
     response = llm.invoke(prompt)
-    state["marketing_copy"] = response.content
+
+    state["marketing_copy"] = response.content.strip()
 
     return state

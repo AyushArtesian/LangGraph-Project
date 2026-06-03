@@ -1,46 +1,145 @@
+# agents/generator.py
+
 from llm import llm
 
 
 def generator_node(state):
-    car_json = state["car_json"]
+    vehicle = state["vehicle"]
+
+    make = vehicle.get("make", "").strip()
+    model = vehicle.get("model", "").strip()
+    trim = vehicle.get("trim", "").strip()
+
+    # Avoid duplicate trim in model name
+    # Example:
+    # model = "Wrangler 4 XE"
+    # trim  = "4XE"
+    # final should NOT become "Wrangler 4 XE 4XE"
+
+    normalized_model = model.lower().replace(" ", "")
+    normalized_trim = trim.lower().replace(" ", "")
+
+    if trim and normalized_trim not in normalized_model:
+        full_name = f"{make} {model} {trim}".strip()
+    else:
+        full_name = f"{make} {model}".strip()
+
+    safety_features = []
+
+    safety_map = {
+        "abs": "Anti-lock Braking System (ABS)",
+        "esc": "Electronic Stability Control (ESC)",
+        "traction_control": "Traction Control",
+        "tpms": "Tire Pressure Monitoring System (TPMS)",
+        "backup_camera": "Backup Camera",
+        "blind_spot_warning": "Blind Spot Warning",
+        "fcw": "Forward Collision Warning",
+        "cib": "Crash Imminent Braking",
+        "dbs": "Dynamic Brake Support",
+        "acc": "Adaptive Cruise Control",
+        "ldw": "Lane Departure Warning",
+        "lka": "Lane Keeping Assistance",
+        "parking_assist": "Parking Assist",
+        "rcta": "Rear Cross Traffic Alert",
+        "keyless_ignition": "Keyless Ignition",
+        "drl": "Daytime Running Light",
+    }
+
+    for key, label in safety_map.items():
+        value = vehicle.get("safety", {}).get(key)
+
+        if value and str(value).strip().lower() not in [
+            "",
+            "none",
+            "null",
+            "not applicable",
+        ]:
+            safety_features.append(label)
+
+    safety_list = (
+        "\n".join(f"- {feature}" for feature in safety_features)
+        if safety_features
+        else "- Standard safety systems"
+    )
 
     prompt = f"""
-You are an expert automotive marketing copywriter producing dealership-grade copy.
+You are a professional automotive marketing writer.
 
-Generate complete marketing copy from the vehicle JSON below.
+Create a dealership-quality vehicle description.
 
-MANDATORY STRUCTURE — include ALL of these sections with clear headings:
+ABSOLUTE RULES:
 
-1. Headline (model name + top 3 highlights)
-2. Opening paragraph (aspirational, premium tone — 3-4 sentences)
-3. Pricing (ex-showroom + on-road in INR, clearly formatted)
-4. Engine & Emissions (displacement, power, torque, fuel type, emission standard)
-5. Transmission & Drivetrain (gearbox type, drive type)
-6. Performance (top speed, 0-100, mileage, fuel tank)
-7. Dimensions & Space (length, width, height, wheelbase, ground clearance, kerb weight, boot space)
-8. Suspension & Brakes (front/rear suspension types, front/rear brakes)
-9. Wheels & Tyres (size, tyre type, alloy wheels, spare wheel)
-10. Exterior Features (bullet list — include every item from the JSON)
-11. Interior Features & Comfort (bullet list — include every item from interior_features + comfort_and_convenience)
-12. Infotainment & Connectivity (screen size, Android Auto, Apple CarPlay, JBL system, wireless charging, USB ports, voice assistant)
-13. Safety & Driver Assistance (total airbags + every ADAS item from safety JSON)
-14. Off-Road Capabilities (4x4 system, terrain modes, locking differential, water wading depth, hill descent control)
-15. Warranty & Support (standard warranty years/km, roadside assistance)
-16. Ratings (Global NCAP stars, owner rating)
-17. Available Colors (list all)
-18. Buying Recommendation (strong, confident closing call to action)
+1. Use ONLY the VPIC vehicle data provided below.
+2. Never invent specifications.
+3. Never invent features.
+4. Never invent dimensions.
+5. Never invent towing capacity.
+6. Never invent seating capacity.
+7. Never invent technology features.
+8. Never invent interior features.
+9. Never invent colors.
+10. Never invent mileage.
+11. Never mention model year.
+12. Never mention any date.
+13. Never mention pricing.
+14. Never mention MSRP.
+15. Never mention plant location.
+16. Never mention factory location.
+17. Never mention manufacturing location.
+18. Never use information not explicitly present in VPIC data.
+19. NEVER write the trim twice.
+20. NEVER write "{trim} {trim}".
+21. NEVER write duplicated model names.
+22. The exact vehicle name "{full_name}" must appear naturally.
 
-RULES:
-- Use ONLY information present in the JSON. Never invent specs.
-- Bold key numbers and spec values.
-- Use bullet points for feature lists.
-- Premium, persuasive, professional tone.
+VEHICLE DATA:
 
-Vehicle JSON:
-{car_json}
+Make: {make}
+Model: {model}
+Trim: {trim if trim else "N/A"}
+
+Body Class: {vehicle.get("body_class", "N/A")}
+Doors: {vehicle.get("doors", "N/A")}
+Drive Type: {vehicle.get("drive_type", "N/A")}
+
+Transmission: {vehicle.get("transmission", "N/A")}
+Transmission Speeds: {vehicle.get("transmission_speeds", "N/A")}
+
+Engine Cylinders: {vehicle.get("engine_cylinders", "N/A")}
+Displacement: {vehicle.get("displacement_l", "N/A")} L
+Horsepower: {vehicle.get("engine_power_hp", "N/A")}
+Kilowatts: {vehicle.get("engine_power_kw", "N/A")}
+
+Fuel Type Primary: {vehicle.get("fuel_primary", "N/A")}
+Fuel Type Secondary: {vehicle.get("fuel_secondary", "N/A")}
+Electrification: {vehicle.get("electrification", "N/A")}
+Turbo: {vehicle.get("turbo", "N/A")}
+Engine Configuration: {vehicle.get("engine_config", "N/A")}
+
+CONFIRMED SAFETY FEATURES:
+{safety_list}
+
+WRITING REQUIREMENTS:
+
+- 3 to 4 paragraphs
+- Professional dealership tone
+- Natural language
+- No bullet points
+- No markdown
+- No headings
+- No feature speculation
+- Mention only confirmed VPIC data
+
+IMPORTANT:
+
+If a field is empty, missing, null, or N/A,
+DO NOT mention it.
+
+Return ONLY the marketing description.
 """
 
     response = llm.invoke(prompt)
-    state["marketing_copy"] = response.content
+
+    state["marketing_copy"] = response.content.strip()
 
     return state

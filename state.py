@@ -1,15 +1,10 @@
-from typing import TypedDict
+from typing import TypedDict, Any
 
 
 class MarketingState(TypedDict):
-    car_json: dict
-
+    vehicle: dict
     marketing_copy: str
-
-    review_feedback: str
-
+    review_feedback: Any
     quality_score: int
-
     approved: bool
-
     iteration: int
