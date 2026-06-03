@@ -36,6 +36,92 @@ def _list_to_prose(items: list) -> str:
     return ", ".join(items[:-1]) + f", and {items[-1]}"
 
 
+def _build_status_features(safety: dict) -> tuple[list, list]:
+    """Collect safety features by VPIC status so all confirmed Standard items are usable."""
+    features = []
+    optional = []
+    seen = set()
+
+    label_overrides = {
+        "keyless_ignition": "keyless ignition",
+        "esc": "electronic stability control",
+        "traction_control": "traction control",
+        "abs": "anti-lock brakes",
+        "drl": "daytime running lights",
+        "blind_spot_warning": "blind spot warning",
+        "bsi": "blind spot intervention",
+        "dbs": "dynamic brake support",
+        "fcw": "forward collision warning",
+        "cib": "crash imminent braking",
+        "acc": "adaptive cruise control",
+        "ldw": "lane departure warning",
+        "lka": "lane keeping assistance",
+        "lane_centering_assist": "lane centering assistance",
+        "parking_assist": "parking assist",
+        "rcta": "rear cross traffic alert",
+        "rear_aeb": "rear automatic emergency braking",
+        "paeb": "pedestrian automatic emergency braking",
+        "semi_auto_headlamps": "semi-automatic headlamp beam switching",
+        "adb": "adaptive driving beam",
+    }
+
+    status_keys_to_skip = {
+        "tpms", "backup_camera", "rear_visibility_system",
+        "front_airbags", "side_airbags", "curtain_airbags", "knee_airbags",
+        "seat_belt_type", "other_restraint_info", "brake_system_type", "headlamp_light_source",
+    }
+
+    for key, raw_val in safety.items():
+        if key in status_keys_to_skip:
+            continue
+
+        val = _val(raw_val).lower()
+        if val not in {"standard", "optional"}:
+            continue
+
+        label = label_overrides.get(key, key.replace("_", " "))
+        if label in seen:
+            continue
+
+        if val == "standard":
+            features.append(label)
+        else:
+            optional.append(label)
+        seen.add(label)
+
+    if _val(safety.get("tpms")):
+        features.append("tire pressure monitoring")
+
+    rear_vis_value = _val(safety.get("backup_camera")) or _val(safety.get("rear_visibility_system"))
+    if rear_vis_value:
+        rear_vis_status = rear_vis_value.lower()
+        if rear_vis_status == "optional":
+            if "a rear visibility system" not in seen:
+                optional.append("a rear visibility system")
+                seen.add("a rear visibility system")
+        else:
+            if "a rear visibility system" not in seen:
+                features.append("a rear visibility system")
+                seen.add("a rear visibility system")
+
+    headlamp_source = _val(safety.get("headlamp_light_source"))
+    if headlamp_source:
+        headlamp_label = f"{headlamp_source} headlamps"
+        if headlamp_label not in seen:
+            features.append(headlamp_label)
+            seen.add(headlamp_label)
+
+    airbag_parts = []
+    if _val(safety.get("front_airbags")):   airbag_parts.append("front")
+    if _val(safety.get("side_airbags")):    airbag_parts.append("side")
+    if _val(safety.get("curtain_airbags")): airbag_parts.append("curtain")
+    if _val(safety.get("knee_airbags")):    airbag_parts.append("knee")
+    if airbag_parts:
+        features.append(f"{' and '.join(airbag_parts)} airbags for added peace of mind")
+
+    return features, optional
+
+
 def refiner_node(state):
     v        = state["vehicle"]
     feedback = state.get("review_feedback", {})
@@ -52,43 +138,7 @@ def refiner_node(state):
         val = safety.get(key, "")
         return str(val).strip() if val else ""
 
-    # Standard features
-    std_features = []
-    for key, label in [
-        ("keyless_ignition",    "keyless ignition"),
-        ("esc",                 "electronic stability control"),
-        ("traction_control",    "traction control"),
-        ("abs",                 "anti-lock brakes"),
-        ("drl",                 "daytime running lights"),
-        ("tpms",                "tire pressure monitoring"),
-    ]:
-        if s(key):
-            std_features.append(label)
-    if s("backup_camera") or s("rear_visibility_system"):
-        std_features.append("a rear visibility system")
-    airbag_parts = []
-    if s("front_airbags"):   airbag_parts.append("front")
-    if s("side_airbags"):    airbag_parts.append("side")
-    if s("curtain_airbags"): airbag_parts.append("curtain")
-    if s("knee_airbags"):    airbag_parts.append("knee")
-    if airbag_parts:
-        std_features.append(f"{' and '.join(airbag_parts)} airbags for added peace of mind")
-
-    # Optional features
-    opt_features = []
-    for key, label in [
-        ("blind_spot_warning",  "blind spot monitoring"),
-        ("dbs",                 "dynamic brake support"),
-        ("fcw",                 "forward collision warning"),
-        ("cib",                 "collision intervention braking"),
-        ("semi_auto_headlamps", "semi-automatic headlamp beam switching"),
-        ("acc",                 "adaptive cruise control"),
-        ("ldw",                 "lane departure warning"),
-        ("lka",                 "lane keeping assistance"),
-    ]:
-        val = s(key)
-        if val and val.lower() == "optional":
-            opt_features.append(label)
+    std_features, opt_features = _build_status_features(safety)
 
     # Build fix instructions from reviewer feedback
     fixes = []
@@ -150,6 +200,7 @@ VEHICLE DATA (VPIC — single source of truth):
   Body Class      : {_val(v.get('body_class'))}
   Doors           : {_val(v.get('doors'))}
   Drive Type      : {_val(v.get('drive_type'))}
+    Transmission    : {((_val(v.get('transmission_speeds')) + '-speed ') if _val(v.get('transmission_speeds')) else '') + _val(v.get('transmission'))}
   Displacement    : {_val(v.get('displacement_l'))}L
   Cylinders       : {_val(v.get('engine_cylinders'))}
   Engine Config   : {_val(v.get('engine_config'))}
@@ -158,6 +209,7 @@ VEHICLE DATA (VPIC — single source of truth):
   Fuel Primary    : {_val(v.get('fuel_primary'))}
   Fuel Secondary  : {_val(v.get('fuel_secondary'))}
   Electrification : {_val(v.get('electrification'))}
+    Headlamp Source : {s('headlamp_light_source')}
   Brake System    : {s('brake_system_type')}
   Restraint Info  : {s('other_restraint_info')}
 

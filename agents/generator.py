@@ -11,29 +11,92 @@ def _val(v):
 
 
 def _build_standard_features(safety: dict) -> list:
-    """
-    Features confirmed Standard in VPIC.
-    Note: VPIC uses either 'Backup Camera' or 'Rear Visibility System' (or both) for the same thing.
-    We treat either as confirming a rear visibility system.
-    """
+    return _build_status_features(safety)[0]
+
+
+def _build_optional_features(safety: dict) -> list:
+    """Features confirmed Optional in VPIC — described as 'available'."""
+    return _build_status_features(safety)[1]
+
+
+def _build_status_features(safety: dict) -> tuple[list, list]:
+    """Collect safety features by VPIC status so all confirmed Standard items are usable."""
     features = []
-    checks = [
-        ("keyless_ignition",        "keyless ignition"),
-        ("esc",                     "electronic stability control"),
-        ("traction_control",        "traction control"),
-        ("abs",                     "anti-lock brakes"),
-        ("drl",                     "daytime running lights"),
-        ("tpms",                    "tire pressure monitoring"),
-    ]
-    for key, label in checks:
-        if _val(safety.get(key)):
+    optional = []
+    seen = set()
+
+    label_overrides = {
+        "keyless_ignition": "keyless ignition",
+        "esc": "electronic stability control",
+        "traction_control": "traction control",
+        "abs": "anti-lock brakes",
+        "drl": "daytime running lights",
+        "blind_spot_warning": "blind spot warning",
+        "bsi": "blind spot intervention",
+        "dbs": "dynamic brake support",
+        "fcw": "forward collision warning",
+        "cib": "crash imminent braking",
+        "acc": "adaptive cruise control",
+        "ldw": "lane departure warning",
+        "lka": "lane keeping assistance",
+        "lane_centering_assist": "lane centering assistance",
+        "parking_assist": "parking assist",
+        "rcta": "rear cross traffic alert",
+        "rear_aeb": "rear automatic emergency braking",
+        "paeb": "pedestrian automatic emergency braking",
+        "semi_auto_headlamps": "semi-automatic headlamp beam switching",
+        "adb": "adaptive driving beam",
+    }
+
+    status_keys_to_skip = {
+        "tpms", "backup_camera", "rear_visibility_system",
+        "front_airbags", "side_airbags", "curtain_airbags", "knee_airbags",
+        "seat_belt_type", "other_restraint_info", "brake_system_type", "headlamp_light_source",
+    }
+
+    for key, raw_val in safety.items():
+        if key in status_keys_to_skip:
+            continue
+
+        val = _val(raw_val).lower()
+        if val not in {"standard", "optional"}:
+            continue
+
+        label = label_overrides.get(key, key.replace("_", " "))
+        if label in seen:
+            continue
+
+        if val == "standard":
             features.append(label)
+        else:
+            optional.append(label)
+        seen.add(label)
 
-    # Rear visibility system — check both VPIC field names
-    if _val(safety.get("backup_camera")) or _val(safety.get("rear_visibility_system")):
-        features.append("a rear visibility system")
+    # TPMS values are often type strings like "Direct" rather than Standard/Optional.
+    if _val(safety.get("tpms")):
+        features.append("tire pressure monitoring")
 
-    # Airbags
+    # Rear visibility system can be represented by either field.
+    rear_vis_value = _val(safety.get("backup_camera")) or _val(safety.get("rear_visibility_system"))
+    if rear_vis_value:
+        rear_vis_status = rear_vis_value.lower()
+        if rear_vis_status == "optional":
+            if "a rear visibility system" not in seen:
+                optional.append("a rear visibility system")
+                seen.add("a rear visibility system")
+        else:
+            if "a rear visibility system" not in seen:
+                features.append("a rear visibility system")
+                seen.add("a rear visibility system")
+
+    headlamp_source = _val(safety.get("headlamp_light_source"))
+    if headlamp_source:
+        headlamp_label = f"{headlamp_source} headlamps"
+        if headlamp_label not in seen:
+            features.append(headlamp_label)
+            seen.add(headlamp_label)
+
+    # Airbags and restraint details are direct facts, not optional statuses.
     airbag_parts = []
     if _val(safety.get("front_airbags")):   airbag_parts.append("front")
     if _val(safety.get("side_airbags")):    airbag_parts.append("side")
@@ -42,29 +105,7 @@ def _build_standard_features(safety: dict) -> list:
     if airbag_parts:
         features.append(f"{' and '.join(airbag_parts)} airbags for added peace of mind")
 
-    return features
-
-
-def _build_optional_features(safety: dict) -> list:
-    """Features confirmed Optional in VPIC — described as 'available'."""
-    features = []
-    checks = [
-        ("blind_spot_warning",  "blind spot monitoring"),
-        ("dbs",                 "dynamic brake support"),
-        ("fcw",                 "forward collision warning"),
-        ("cib",                 "collision intervention braking"),
-        ("semi_auto_headlamps", "semi-automatic headlamp beam switching"),
-        ("acc",                 "adaptive cruise control"),
-        ("ldw",                 "lane departure warning"),
-        ("lka",                 "lane keeping assistance"),
-        ("parking_assist",      "parking assist"),
-        ("rcta",                "rear cross traffic alert"),
-    ]
-    for key, label in checks:
-        val = _val(safety.get(key))
-        if val and val.lower() == "optional":
-            features.append(label)
-    return features
+    return features, optional
 
 
 def _list_to_prose(items: list) -> str:
@@ -90,6 +131,8 @@ def generator_node(state):
     body_class = _val(v.get("body_class"))
     drive_type = _val(v.get("drive_type"))
     hp         = _val(v.get("engine_power_hp"))
+    transmission = _val(v.get("transmission"))
+    transmission_speeds = _val(v.get("transmission_speeds"))
     disp_l     = _val(v.get("displacement_l"))
     cylinders  = _val(v.get("engine_cylinders"))
     engine_cfg = _val(v.get("engine_config"))
@@ -99,6 +142,7 @@ def generator_node(state):
     elec       = _val(v.get("electrification"))
     brake_type = _val(safety.get("brake_system_type"))
     restraint  = _val(safety.get("other_restraint_info"))
+    headlamp_light_source = _val(safety.get("headlamp_light_source"))
 
     turbo_prefix = "turbocharged " if turbo.lower() == "yes" else ""
     inline_cfg   = "inline " if "in-line" in engine_cfg.lower() else (engine_cfg.lower() + " " if engine_cfg else "")
@@ -154,9 +198,11 @@ VEHICLE DATA (VPIC — single source of truth):
   Drive Type      : {drive_type}
   Engine          : {engine_desc if engine_desc else "see VPIC"}
   Power           : {hp + " hp" if hp else "see VPIC"}
+    Transmission    : {((transmission_speeds + "-speed ") if transmission_speeds else "") + transmission if transmission else "see VPIC"}
   Fuel Primary    : {fuel_pri}
   Fuel Secondary  : {fuel_sec}
   Electrification : {elec}
+    Headlamps       : {headlamp_light_source if headlamp_light_source else "see VPIC"}
   Brake System    : {brake_type}
   Restraint Info  : {restraint}
 
@@ -187,7 +233,8 @@ RULES:
    Para 3: Brake system + optional/available ADAS features
    Para 4: Closing value statement (no color or mileage — those are not in VPIC)
 
-7. Output ONLY the 4-paragraph description. No preamble, no notes.
+7. If transmission details are present, include them in the powertrain description.
+8. Output ONLY the 4-paragraph description. No preamble, no notes.
 """
 
     response = llm.invoke(prompt)

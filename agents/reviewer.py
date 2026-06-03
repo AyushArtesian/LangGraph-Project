@@ -55,6 +55,8 @@ Full vehicle name : "{full_name}"
 Body Class        : {v.get('body_class', '')}
 Doors             : {v.get('doors', '')}
 Drive Type        : {v.get('drive_type', '')}
+Transmission Style: {v.get('transmission', '')}
+Transmission Speed: {v.get('transmission_speeds', '')}
 Displacement      : {v.get('displacement_l', '')}L
 Cylinders         : {v.get('engine_cylinders', '')}
 Engine Config     : {v.get('engine_config', '')}   ("In-Line" = "inline" = same thing)
@@ -87,10 +89,16 @@ CONFIRMED OPTIONAL/AVAILABLE (do NOT flag as hallucination if described as "avai
   FCW                : {s('fcw')}
   CIB                : {s('cib')}
   DBS                : {s('dbs')}
+    PAEB               : {s('paeb')}
   Semi-Auto Headlamps: {s('semi_auto_headlamps')}
+    Adaptive Driving Beam: {s('adb')}
+    Rear Auto Emergency Braking: {s('rear_aeb')}
   ACC                : {s('acc')}
   LDW                : {s('ldw')}
   LKA                : {s('lka')}
+    Lane Centering Assistance: {s('lane_centering_assist')}
+    Blind Spot Intervention: {s('bsi')}
+    Headlamp Light Source : {s('headlamp_light_source')}
 
 IMPORTANT NOTES:
 - "rear visibility system" IS confirmed (Rear Visibility System CONFIRMED: {rear_vis_confirmed}). Do NOT flag it.
@@ -99,6 +107,7 @@ IMPORTANT NOTES:
 - Optional features described as "available" are NOT hallucinations.
 - Standard features described as included/standard are NOT hallucinations.
 - HP figure ({v.get('engine_power_hp', '')} hp) is confirmed. Do NOT flag it.
+- Transmission style/speed and LED headlamp wording are factual if present in VPIC. Do NOT flag them.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DESCRIPTION TO VALIDATE:
