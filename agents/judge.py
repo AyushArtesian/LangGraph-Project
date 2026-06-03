@@ -1,3 +1,5 @@
+# agents/judge.py
+
 from llm import llm
 
 APPROVAL_THRESHOLD = 90
@@ -6,90 +8,74 @@ APPROVAL_THRESHOLD = 90
 def _is_yes(value) -> bool:
     if isinstance(value, bool):
         return value
-
     if isinstance(value, str):
         return value.strip().lower() == "yes"
-
     return False
 
 
 def _hallucination_text(value) -> str:
     if value is None:
         return ""
-
     if isinstance(value, list):
-        return ", ".join(
-            str(v).strip()
-            for v in value
-            if str(v).strip()
-        )
-
+        return ", ".join(str(v).strip() for v in value if str(v).strip())
     return str(value).strip()
 
 
 def judge_node(state):
     feedback = state.get("review_feedback", {})
 
-    score = 100
+    score  = 100
     issues = []
 
+    # ── CRITICAL failures — immediately disqualify ────────────────────
     if not _is_yes(feedback.get("model_name_present")):
         score = 0
-        issues.append("CRITICAL: model name missing")
+        issues.append("CRITICAL: model name missing from copy")
 
     if not _is_yes(feedback.get("model_name_correct_spacing")):
         score = 0
-        issues.append("CRITICAL: model spacing incorrect")
+        issues.append("CRITICAL: model name spacing incorrect (letters+numbers must have a space)")
 
+    # ── Major deductions ──────────────────────────────────────────────
     if _is_yes(feedback.get("duplicate_trim_detected")):
-        score -= 50
-        issues.append("duplicate trim detected")
+        score -= 40
+        issues.append("duplicate trim name written twice in a row")
 
     if _is_yes(feedback.get("duplicate_model_detected")):
-        score -= 50
-        issues.append("duplicate model detected")
+        score -= 30
+        issues.append("model name unnecessarily duplicated")
 
     if _is_yes(feedback.get("contains_year_date")):
         score -= 40
-        issues.append("contains year/date")
+        issues.append("copy contains a year or date reference")
 
     if _is_yes(feedback.get("contains_price")):
         score -= 40
-        issues.append("contains price")
+        issues.append("copy contains pricing information")
 
     if _is_yes(feedback.get("contains_plant_location")):
         score -= 30
-        issues.append("contains plant location")
+        issues.append("copy contains plant/factory/manufacturing location")
 
     if _is_yes(feedback.get("contains_hallucinated_data")):
-        hallucinations = _hallucination_text(
-            feedback.get("hallucination_examples")
-        )
-
-        score -= 40
-
+        hallucinations = _hallucination_text(feedback.get("hallucination_examples"))
+        score -= 30
         if hallucinations:
-            issues.append(
-                f"Hallucinations: {hallucinations[:200]}"
-            )
+            issues.append(f"hallucinated content: {hallucinations[:300]}")
 
     score = max(score, 0)
 
-    approved = (
-        score >= APPROVAL_THRESHOLD
-        and len(issues) == 0
-    )
+    # Approved only if score meets threshold AND no critical/major issues
+    critical_count = sum(1 for i in issues if "CRITICAL" in i)
+    approved = (score >= APPROVAL_THRESHOLD) and (critical_count == 0)
 
     state["quality_score"] = score
-    state["approved"] = approved
-    state["iteration"] += 1
+    state["approved"]      = approved
+    state["iteration"]     += 1
 
-    print(f"\n[judge] Iteration {state['iteration']}")
-    print(f"[judge] Score: {score}/100")
-    print(f"[judge] Approved: {approved}")
-
+    print(f"\n[judge] Iteration {state['iteration']} | Score: {score}/100 | Approved: {approved}")
     if issues:
-        print("[judge] Issues Found:")
+        print("[judge] Issues:")
         for issue in issues:
             print(f"   - {issue}")
     else:

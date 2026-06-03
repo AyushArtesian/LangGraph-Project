@@ -1,37 +1,71 @@
 import sys
+import json
+import re
 import requests
 from tqdm import tqdm
 
 from graph import graph
 
 
-# ─────────────────────────────────────────────────────────
-# VPIC API SETUP
-# ─────────────────────────────────────────────────────────
 VPIC_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/{vin}?format=json"
 
-FIELDS_TO_EXTRACT = [
-    "Make", "Model", "Model Year", "Trim",
-    "Body Class", "Drive Type", "Transmission Style", "Transmission Speeds",
-    "Engine Number of Cylinders", "Displacement (L)", "Displacement (CC)",
-    "Engine Power (kW)", "Engine Brake (hp) From",
-    "Fuel Type - Primary", "Fuel Type - Secondary",
-    "Electrification Level", "Turbo", "Engine Configuration",
-    "Anti-lock Braking System (ABS)", "Electronic Stability Control (ESC)",
-    "Traction Control", "Tire Pressure Monitoring System (TPMS) Type",
-    "Backup Camera", "Blind Spot Warning (BSW)",
-    "Forward Collision Warning (FCW)", "Crash Imminent Braking (CIB)",
-    "Dynamic Brake Support (DBS)", "Adaptive Cruise Control (ACC)",
-    "Lane Departure Warning (LDW)", "Lane Keeping Assistance (LKA)",
-    "Parking Assist", "Rear Cross Traffic Alert",
-    "Keyless Ignition", "Daytime Running Light (DRL)",
-    "Seat Belt Type", "Front Air Bag Locations", "Side Air Bag Locations",
-    "Doors", "Steering Location"
-]
+VPIC_FIELDS = {
+    "Make":                                       "make",
+    "Model":                                      "model_raw",
+    "Model Year":                                 "year",
+    "Trim":                                       "trim_raw",
+    "Trim2":                                      "trim2",
+    "Series":                                     "series",
+    "Body Class":                                 "body_class",
+    "Vehicle Type":                               "vehicle_type",
+    "Doors":                                      "doors",
+    "Drive Type":                                 "drive_type",
+    "Transmission Style":                         "transmission",
+    "Transmission Speeds":                        "transmission_speeds",
+    "Engine Number of Cylinders":                 "engine_cylinders",
+    "Displacement (L)":                           "displacement_l",
+    "Displacement (CC)":                          "displacement_cc",
+    "Engine Brake (hp) From":                     "engine_power_hp",
+    "Engine Power (kW)":                          "engine_power_kw",
+    "Engine Configuration":                       "engine_config",
+    "Turbo":                                      "turbo",
+    "Fuel Delivery / Fuel Injection Type":        "fuel_injection",
+    "Other Engine Info":                          "other_engine_info",
+    "Fuel Type - Primary":                        "fuel_primary",
+    "Fuel Type - Secondary":                      "fuel_secondary",
+    "Electrification Level":                      "electrification",
+    "Anti-lock Braking System (ABS)":             "abs",
+    "Electronic Stability Control (ESC)":         "esc",
+    "Traction Control":                           "traction_control",
+    "Tire Pressure Monitoring System (TPMS) Type": "tpms",
+    "Backup Camera":                              "backup_camera",
+    "Rear Visibility System":                     "rear_visibility_system",
+    "Keyless Ignition":                           "keyless_ignition",
+    "Daytime Running Light (DRL)":                "drl",
+    "Brake System Type":                          "brake_system_type",
+    "Blind Spot Warning (BSW)":                   "blind_spot_warning",
+    "Forward Collision Warning (FCW)":            "fcw",
+    "Crash Imminent Braking (CIB)":               "cib",
+    "Dynamic Brake Support (DBS)":                "dbs",
+    "Adaptive Cruise Control (ACC)":              "acc",
+    "Lane Departure Warning (LDW)":               "ldw",
+    "Lane Keeping Assistance (LKA)":              "lka",
+    "Parking Assist":                             "parking_assist",
+    "Rear Cross Traffic Alert":                   "rcta",
+    "Semiautomatic Headlamp Beam Switching":      "semi_auto_headlamps",
+    "Front Air Bag Locations":                    "front_airbags",
+    "Side Air Bag Locations":                     "side_airbags",
+    "Curtain Air Bag Locations":                  "curtain_airbags",
+    "Knee Air Bag Locations":                     "knee_airbags",
+    "Seat Belt Type":                             "seat_belt_type",
+    "Other Restraint System Info":                "other_restraint_info",
+    "Gross Vehicle Weight Rating From":           "gvwr",
+}
+
+NULL_VALUES = {"", "Not Applicable", "null", "None", "N/A"}
 
 
 def fetch_vpic(vin: str) -> dict:
-    """Fetch and parse VPIC data for a VIN."""
     url = VPIC_URL.format(vin=vin.strip().upper())
     print(f"\n[vpic] Fetching: {url}")
     try:
@@ -41,125 +75,117 @@ def fetch_vpic(vin: str) -> dict:
         print(f"[vpic] ERROR: {e}")
         sys.exit(1)
 
-    data = resp.json()
     parsed = {}
+    error_code = None
 
-    for item in data.get("Results", []):
+    for item in resp.json().get("Results", []):
         var = item.get("Variable", "").strip()
         val = item.get("Value")
-        if var in FIELDS_TO_EXTRACT and val and val.strip() not in ("", "Not Applicable", "null"):
-            parsed[var] = val.strip()
+        if var == "Error Code":
+            error_code = val
+        mapped_key = VPIC_FIELDS.get(var)
+        if mapped_key and val and str(val).strip() not in NULL_VALUES:
+            parsed[mapped_key] = str(val).strip()
+
+    if error_code and error_code != "0":
+        print(f"[vpic] WARNING: Error code {error_code}. Data may be incomplete.")
 
     return parsed
 
 
-def normalize_model_name(vpic: dict) -> str:
-    import re
-
-    model = vpic.get("Model", "").strip()
-    trim = vpic.get("Trim", "").strip()
-
-    full_model = model
-
-    if trim:
-        trim_spaced = re.sub(
-            r'([A-Za-z])(\d)',
-            r'\1 \2',
-            trim
-        )
-
-        trim_spaced = re.sub(
-            r'(\d)([A-Za-z])',
-            r'\1 \2',
-            trim_spaced
-        )
-
-        if trim_spaced.lower() not in model.lower():
-            full_model = f"{model} {trim_spaced}"
-
-    return full_model
+def normalize_spacing(text: str) -> str:
+    """Insert space between letter↔digit: GLC300→GLC 300, 4XE→4 XE"""
+    text = re.sub(r'([A-Za-z])(\d)', r'\1 \2', text)
+    text = re.sub(r'(\d)([A-Za-z])', r'\1 \2', text)
+    return text.strip()
 
 
-def get_vin() -> str:
-    """Get VIN from user."""
-    vin = input("\nEnter VIN number: ").strip()
-    if not vin:
-        print("ERROR: VIN cannot be empty.")
-        sys.exit(1)
-    return vin
+def build_vehicle(vpic: dict, vin: str) -> dict:
+    model_raw = vpic.get("model_raw", "")
+    trim_raw  = vpic.get("trim_raw", "")
 
+    model_norm = normalize_spacing(model_raw)
+    trim_norm  = normalize_spacing(trim_raw)
 
-def build_vehicle_data(vpic: dict) -> dict:
-    """Build vehicle data dict from VPIC response."""
+    # Full display name — avoid duplicating trim if already in model
+    model_no_space = model_norm.lower().replace(" ", "")
+    trim_no_space  = trim_norm.lower().replace(" ", "")
+    if trim_norm and trim_no_space not in model_no_space:
+        full_name = f"{vpic.get('make', '')} {model_norm} {trim_norm}".strip()
+    else:
+        full_name = f"{vpic.get('make', '')} {model_norm}".strip()
+
+    safety_keys = [
+        "abs", "esc", "traction_control", "tpms", "backup_camera",
+        "rear_visibility_system", "keyless_ignition", "drl", "brake_system_type",
+        "blind_spot_warning", "fcw", "cib", "dbs", "acc", "ldw", "lka",
+        "parking_assist", "rcta", "semi_auto_headlamps",
+        "front_airbags", "side_airbags", "curtain_airbags", "knee_airbags",
+        "seat_belt_type", "other_restraint_info",
+    ]
+    safety = {k: vpic.get(k, "") for k in safety_keys}
+
     return {
-        "vin": vpic.get("VIN", ""),
-        "make": vpic.get("Make", ""),
-        "model": normalize_model_name(vpic),
-        "model_raw": vpic.get("Model", ""),
-        "trim": vpic.get("Trim", ""),
-        "year": vpic.get("Model Year", ""),
-        "body_class": vpic.get("Body Class", ""),
-        "drive_type": vpic.get("Drive Type", ""),
-        "transmission": vpic.get("Transmission Style", ""),
-        "transmission_speeds": vpic.get("Transmission Speeds", ""),
-        "engine_cylinders": vpic.get("Engine Number of Cylinders", ""),
-        "displacement_l": vpic.get("Displacement (L)", ""),
-        "displacement_cc": vpic.get("Displacement (CC)", ""),
-        "engine_power_kw": vpic.get("Engine Power (kW)", ""),
-        "engine_power_hp": vpic.get("Engine Brake (hp) From", ""),
-        "fuel_primary": vpic.get("Fuel Type - Primary", ""),
-        "fuel_secondary": vpic.get("Fuel Type - Secondary", ""),
-        "electrification": vpic.get("Electrification Level", ""),
-        "turbo": vpic.get("Turbo", ""),
-        "engine_config": vpic.get("Engine Configuration", ""),
-        "doors": vpic.get("Doors", ""),
-        "safety": {
-            "abs": vpic.get("Anti-lock Braking System (ABS)", ""),
-            "esc": vpic.get("Electronic Stability Control (ESC)", ""),
-            "traction_control": vpic.get("Traction Control", ""),
-            "tpms": vpic.get("Tire Pressure Monitoring System (TPMS) Type", ""),
-            "backup_camera": vpic.get("Backup Camera", ""),
-            "blind_spot_warning": vpic.get("Blind Spot Warning (BSW)", ""),
-            "fcw": vpic.get("Forward Collision Warning (FCW)", ""),
-            "cib": vpic.get("Crash Imminent Braking (CIB)", ""),
-            "dbs": vpic.get("Dynamic Brake Support (DBS)", ""),
-            "acc": vpic.get("Adaptive Cruise Control (ACC)", ""),
-            "ldw": vpic.get("Lane Departure Warning (LDW)", ""),
-            "lka": vpic.get("Lane Keeping Assistance (LKA)", ""),
-            "parking_assist": vpic.get("Parking Assist", ""),
-            "rcta": vpic.get("Rear Cross Traffic Alert", ""),
-            "keyless_ignition": vpic.get("Keyless Ignition", ""),
-            "drl": vpic.get("Daytime Running Light (DRL)", ""),
-            "front_airbags": vpic.get("Front Air Bag Locations", ""),
-            "side_airbags": vpic.get("Side Air Bag Locations", ""),
-            "seat_belt": vpic.get("Seat Belt Type", ""),
-        },
-        "_vpic_raw": vpic,
+        "vin":               vin.strip().upper(),
+        "year":              vpic.get("year", ""),
+        "make":              vpic.get("make", ""),
+        "model":             model_norm,
+        "model_raw":         model_raw,
+        "trim":              trim_norm,
+        "trim_raw":          trim_raw,
+        "full_name":         full_name,
+        "series":            vpic.get("series", ""),
+        "body_class":        vpic.get("body_class", ""),
+        "vehicle_type":      vpic.get("vehicle_type", ""),
+        "doors":             vpic.get("doors", ""),
+        "drive_type":        vpic.get("drive_type", ""),
+        "transmission":      vpic.get("transmission", ""),
+        "transmission_speeds": vpic.get("transmission_speeds", ""),
+        "engine_cylinders":  vpic.get("engine_cylinders", ""),
+        "displacement_l":    vpic.get("displacement_l", ""),
+        "displacement_cc":   vpic.get("displacement_cc", ""),
+        "engine_power_hp":   vpic.get("engine_power_hp", ""),
+        "engine_power_kw":   vpic.get("engine_power_kw", ""),
+        "engine_config":     vpic.get("engine_config", ""),
+        "turbo":             vpic.get("turbo", ""),
+        "other_engine_info": vpic.get("other_engine_info", ""),
+        "fuel_primary":      vpic.get("fuel_primary", ""),
+        "fuel_secondary":    vpic.get("fuel_secondary", ""),
+        "electrification":   vpic.get("electrification", ""),
+        "safety":            safety,
+        # No dealer — these are populated from VPIC + prompt only
+        "dealer_name":       "",
+        "dealer_blurb":      "",
     }
 
 
 if __name__ == "__main__":
-    vin = get_vin()
-    vpic_data = fetch_vpic(vin)
-    vehicle_data = build_vehicle_data(vpic_data)
+    vin = input("\nEnter VIN number: ").strip()
+    if not vin:
+        print("No VIN entered. Exiting.")
+        sys.exit(1)
 
-    print(f"\n[main] Vehicle identified: {vehicle_data['make']} {vehicle_data['model']}")
+    vpic_data = fetch_vpic(vin)
+    vehicle   = build_vehicle(vpic_data, vin)
+
+    print(f"\n[main] Vehicle  : {vehicle['full_name']}")
+    print(f"[main] Trim raw : '{vehicle['trim_raw']}'  →  normalized: '{vehicle['trim']}'")
+    print(f"[main] Make     : {vehicle['make']}")
 
     initial_state = {
-        "vehicle": vehicle_data,
-        "marketing_copy": "",
+        "vehicle":         vehicle,
+        "marketing_copy":  "",
         "review_feedback": {},
-        "quality_score": 0,
-        "approved": False,
-        "iteration": 0,
+        "quality_score":   0,
+        "approved":        False,
+        "iteration":       0,
     }
 
-    MAX_ITERATIONS = 5
+    MAX_ITERATIONS      = 5
     NODES_PER_ITERATION = 4
-    TOTAL_STEPS = MAX_ITERATIONS * NODES_PER_ITERATION
+    TOTAL_STEPS         = MAX_ITERATIONS * NODES_PER_ITERATION
 
     result = None
-
     print("\nStarting Marketing Copy Generation...\n")
 
     with tqdm(total=TOTAL_STEPS, desc="Pipeline", unit="node") as pbar:
@@ -174,7 +200,6 @@ if __name__ == "__main__":
     print("FINAL MARKETING COPY")
     print("=" * 80)
     print(result["marketing_copy"])
-
     print("\n" + "=" * 80)
     print(f"QUALITY SCORE : {result['quality_score']}/100")
     print(f"APPROVED      : {result['approved']}")
