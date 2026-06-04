@@ -33,7 +33,9 @@ def health_check():
 
 @app.post(
     "/generate-marketing-copy",
-    response_model=MarketingCopyResponse
+    response_model=MarketingCopyResponse,
+    tags=["generate"],
+    operation_id="marketing_copy",
 )
 def generate_marketing_copy(request: VINRequest):
 
