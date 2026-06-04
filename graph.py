@@ -8,7 +8,7 @@ from agents.reviewer  import reviewer_node
 from agents.refiner   import refiner_node
 from agents.judge     import judge_node
 
-MAX_ITERATIONS = 5
+
 
 builder = StateGraph(MarketingState)
 
@@ -28,11 +28,17 @@ builder.add_edge("refiner",   "reviewer")
 
 def route_after_judge(state) -> str:
     if state["approved"]:
-        print(f"\n✅ Approved at iteration {state['iteration']} with score {state['quality_score']}/100")
+        print(
+            f"\n✅ Approved at iteration {state['iteration']} "
+            f"with score {state['quality_score']}/100"
+        )
         return END
 
-    if state["iteration"] >= MAX_ITERATIONS:
-        print(f"\n❌ Rejected after {state['iteration']} iterations. Final score: {state['quality_score']}/100")
+    if state["iteration"] >= state["max_iterations"]:
+        print(
+            f"\n❌ Rejected after {state['iteration']} iterations. "
+            f"Final score: {state['quality_score']}/100"
+        )
         return END
 
     print(f"\nRetrying... iteration {state['iteration']}")

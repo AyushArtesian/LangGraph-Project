@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from graph import graph
 from main import fetch_vpic, build_vehicle
@@ -12,6 +12,7 @@ app = FastAPI(
 
 class VINRequest(BaseModel):
     vin: str
+    max_iterations: int = Field(default=5, ge=1, le=10, description="Maximum number of refinement iterations (1-5)")
 
 
 class MarketingCopyResponse(BaseModel):
@@ -68,6 +69,7 @@ def generate_marketing_copy(request: VINRequest):
             "quality_score": 0,
             "approved": False,
             "iteration": 0,
+            "max_iterations": request.max_iterations,
         }
 
         result = None
@@ -91,7 +93,8 @@ def generate_marketing_copy(request: VINRequest):
             "marketing_copy": result["marketing_copy"],
             "quality_score": result["quality_score"],
             "approved": result["approved"],
-            "iterations": result["iteration"]
+            "iterations": result["iteration"],
+            "max_iterations": request.max_iterations,
         }
 
     except HTTPException:

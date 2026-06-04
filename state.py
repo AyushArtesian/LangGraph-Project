@@ -8,3 +8,4 @@ class MarketingState(TypedDict):
     quality_score: int     # 0-100
     approved: bool
     iteration: int
+    max_iterations: int
