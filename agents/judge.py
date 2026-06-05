@@ -14,6 +14,7 @@ def _is_yes(value) -> bool:
     return False
 
 
+
 def _hallucination_text(value) -> str:
     if value is None:
         return ""
