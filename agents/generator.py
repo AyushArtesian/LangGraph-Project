@@ -1,7 +1,7 @@
 # agents/generator.py
 
 from llm import llm
-
+from langsmith import traceable
 
 def _val(v):
     if v is None:
@@ -117,7 +117,7 @@ def _list_to_prose(items: list) -> str:
         return f"{items[0]} and {items[1]}"
     return ", ".join(items[:-1]) + f", and {items[-1]}"
 
-
+@traceable(name = "Generator Agent")
 def generator_node(state):
     v      = state["vehicle"]
     safety = v.get("safety", {})

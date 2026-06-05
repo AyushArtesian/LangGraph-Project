@@ -5,6 +5,7 @@ gunicorn
 langgraph
 langchain
 langchain-openai
+langgraph
 
 python-dotenv
 requests

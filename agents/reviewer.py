@@ -4,7 +4,7 @@ import json
 import re
 
 from llm import llm
-
+from langsmith import traceable
 
 def extract_json(text: str) -> dict | None:
     text = re.sub(r"```(?:json)?\s*", "", text).replace("```", "").strip()
@@ -24,6 +24,7 @@ def extract_json(text: str) -> dict | None:
     return None
 
 
+@traceable(name = "Reviewer Agent")
 def reviewer_node(state):
     v = state["vehicle"]
     copy = state["marketing_copy"]

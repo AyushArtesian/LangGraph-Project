@@ -1,7 +1,7 @@
 # agents/refiner.py
 
 from llm import llm
-
+from langsmith import traceable
 
 def _is_yes(value) -> bool:
     if isinstance(value, bool):
@@ -122,6 +122,7 @@ def _build_status_features(safety: dict) -> tuple[list, list]:
     return features, optional
 
 
+@traceable(name = "Refiner Agent")
 def refiner_node(state):
     v        = state["vehicle"]
     feedback = state.get("review_feedback", {})

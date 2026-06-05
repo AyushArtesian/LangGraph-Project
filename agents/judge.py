@@ -1,6 +1,7 @@
 # agents/judge.py
 
 from llm import llm
+from langsmith import traceable
 
 APPROVAL_THRESHOLD = 90
 
@@ -20,7 +21,7 @@ def _hallucination_text(value) -> str:
         return ", ".join(str(v).strip() for v in value if str(v).strip())
     return str(value).strip()
 
-
+@traceable(name = "Judge Agent")
 def judge_node(state):
     feedback = state.get("review_feedback", {})
 
