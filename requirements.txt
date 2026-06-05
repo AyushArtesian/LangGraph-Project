@@ -5,7 +5,7 @@ gunicorn
 langgraph
 langchain
 langchain-openai
-langgraph
+langsmith
 
 python-dotenv
 requests
