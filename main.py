@@ -1,6 +1,7 @@
 import sys
 import json
 import re
+import uuid
 import requests
 from tqdm import tqdm
 
@@ -187,6 +188,9 @@ if __name__ == "__main__":
         "quality_score":   0,
         "approved":        False,
         "iteration":       0,
+        "max_iterations":  5,
+        "run_id":         str(uuid.uuid4()),
+        "trace":          []
     }
 
     MAX_ITERATIONS      = 5

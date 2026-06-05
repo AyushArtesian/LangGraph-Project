@@ -3,6 +3,8 @@
 from llm import llm
 from langsmith import traceable
 
+from utils.tracing import add_trace
+
 APPROVAL_THRESHOLD = 90
 
 
@@ -82,5 +84,16 @@ def judge_node(state):
             print(f"   - {issue}")
     else:
         print("[judge] No issues found.")
+
+    add_trace(
+        state,
+        agent="Judge Agent",
+        details={
+            "quality_score": score,
+            "approved": approved,
+            "issues": issues,
+            "iteration": state["iteration"],
+        }
+    )
 
     return state

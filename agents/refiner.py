@@ -3,6 +3,8 @@
 from llm import llm
 from langsmith import traceable
 
+from utils.tracing import add_trace
+
 def _is_yes(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -242,4 +244,16 @@ ABSOLUTE RULES:
 
     response = llm.invoke(prompt)
     state["marketing_copy"] = response.content.strip()
+
+    add_trace(
+        state,
+        agent="Refiner Agent",
+        details={
+            "iteration": state["iteration"],
+            "fixes_applied": fixes,
+            "feedback_count": len(feedback),
+            "feedback_summary": feedback.get("summary", ""),
+        }   
+    )
+
     return state

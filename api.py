@@ -1,8 +1,12 @@
 from fastapi import FastAPI, HTTPException
+from langchain_protocol import Any
 from pydantic import BaseModel, Field
 
 from graph import graph
 from main import fetch_vpic, build_vehicle
+from typing import List, Dict, Any
+
+import uuid
 
 app = FastAPI(
     title="Vehicle Marketing Copy API",
@@ -22,6 +26,10 @@ class MarketingCopyResponse(BaseModel):
     quality_score: int
     approved: bool
     iterations: int
+
+    max_iterations: int
+    run_id: str
+    trace: List[dict[str, Any]]
 
 
 @app.get("/")
@@ -70,6 +78,9 @@ def generate_marketing_copy(request: VINRequest):
             "approved": False,
             "iteration": 0,
             "max_iterations": request.max_iterations,
+
+            "run_id": str(uuid.uuid4()),
+            "trace": []
         }
 
         result = None
@@ -95,6 +106,8 @@ def generate_marketing_copy(request: VINRequest):
             "approved": result["approved"],
             "iterations": result["iteration"],
             "max_iterations": request.max_iterations,
+            "run_id": result["run_id"],
+            "trace": result["trace"],
         }
 
     except HTTPException:

@@ -1,5 +1,5 @@
 from typing import TypedDict, Any
-
+from typing import List, Dict, TypedDict, Any
 
 class MarketingState(TypedDict):
     vehicle: dict          # All parsed VPIC + DMS data + dealer info
@@ -9,3 +9,6 @@ class MarketingState(TypedDict):
     approved: bool
     iteration: int
     max_iterations: int
+
+    run_id: str            # For tracing/debugging
+    trace:  List[Dict[str, Any]]

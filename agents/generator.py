@@ -3,6 +3,12 @@
 from llm import llm
 from langsmith import traceable
 
+from utils.tracing import add_trace
+
+import time
+
+start_time = time.time()
+
 def _val(v):
     if v is None:
         return ""
@@ -119,6 +125,9 @@ def _list_to_prose(items: list) -> str:
 
 @traceable(name = "Generator Agent")
 def generator_node(state):
+
+    duration = round(time.time() - start_time, 2)
+
     v      = state["vehicle"]
     safety = v.get("safety", {})
 
@@ -239,4 +248,13 @@ RULES:
 
     response = llm.invoke(prompt)
     state["marketing_copy"] = response.content.strip()
+
+    add_trace(
+        state,
+        agent="Generator Agent",
+        details={
+            "vehicle": state["vehicle"]["full_name"],
+            "duration_seconds": duration,
+        })   
+
     return state

@@ -6,6 +6,8 @@ import re
 from llm import llm
 from langsmith import traceable
 
+from utils.tracing import add_trace
+
 def extract_json(text: str) -> dict | None:
     text = re.sub(r"```(?:json)?\s*", "", text).replace("```", "").strip()
 
@@ -272,6 +274,12 @@ Return ONLY valid JSON:
         f"DupTrim={result.get('duplicate_trim_detected')} | "
         f"Hallucinations={result.get('contains_hallucinated_data')} | "
         f"{result.get('summary', '')}"
+    )
+
+    add_trace(
+        state,
+        agent="Reviewer Agent",
+        details={"feedback_count": len(result), "feedback_summary": result.get("summary", "")}
     )
 
     return state
